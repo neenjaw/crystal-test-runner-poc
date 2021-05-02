@@ -27,6 +27,7 @@ input_dir="${2%/}"
 output_dir="${3%/}"
 spec_files=( ${input_dir}/spec/*_spec.cr )
 spec_file="${spec_files[0]}"
+modified_spec_file="${input_dir}/spec/modified_test_spec.cr"
 capture_file="${output_dir}/capture"
 scaffold_file="${output_dir}/scaffold.json"
 junit_file="${output_dir}/output.xml"
@@ -37,9 +38,11 @@ mkdir -p "${output_dir}"
 
 echo "${slug}: testing..."
 
+cat "${spec_file}" | sed -e 's/\(\s\)pending\(.*\)/\1it\2/' > "${modified_spec_file}"
+
 # Run the tests for the provided implementation file and redirect stdout and
 # stderr to capture it
-crystal spec "${spec_file}" --junit_output="${output_dir}" --no-color &> "${capture_file}"
+crystal spec "${modified_spec_file}" --junit_output="${output_dir}" --no-color &> "${capture_file}"
 
 ./bin/scaffold_json "${spec_file}" "${scaffold_file}"
 ./bin/result_to_json "${capture_file}" "${junit_file}" "${scaffold_file}" "${results_file}"

@@ -1,8 +1,10 @@
 tests/*/results.json
 example
 scaffold.json
+scaffold_json
 result_to_json
 output.xml
 results.json
 capture
 outdir
+modified_test_spec.cr
