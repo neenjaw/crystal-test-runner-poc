@@ -31,6 +31,7 @@ class TestCase
       json.field "test_code", code
       json.field "status", nil
       json.field "message", nil
+      json.field "output", nil
     end
   end
 end
@@ -96,14 +97,17 @@ class ParsingState
 end
 
 test_file = ARGV[0]?
+output_file = ARGV[1]?
 
-unless test_file
+unless test_file && output_file
   puts <<-USAGE
     Usage:
-    > scaffold_json <spec test file>
+    > scaffold_json <spec test file> <output json file>
     USAGE
   exit 1
 end
+
+puts "* Reading spec file: #{test_file} 📖"
 
 tests = File
   .read(test_file)
@@ -133,4 +137,7 @@ scaffold =
     end
   end
 
-pp scaffold
+puts "* Writing scaffold json to: #{output_file} 🖊"
+
+File.write(output_file, scaffold)
+puts "* All done converting spec to scaffold json 🏁"
