@@ -1,5 +1,12 @@
 {
-  "version": 1,
-  "status": "fail",
-  "output": "TODO: replace with correct output"
+  "version": 2,
+  "status": "error",
+  "message": "Showing last frame. Use --error-trace for full trace.\n\nIn tests/example-empty-file/spec/mini_bob_spec.cr:7:7\n\n 7 | Bob.hey(\"Tom-ay-to, tom-aaaah-to.\").should eq \"Whatever.\"\n     ^--\nError: undefined constant Bob\n\nDid you mean 'Box'?\n",
+  "tests": [
+    {
+      "name": "Bob #hey responds to stating something",
+      "test_code": "Bob.hey(\"Tom-ay-to, tom-aaaah-to.\").should eq \"Whatever.\"",
+      "status": "fail"
+    }
+  ]
 }

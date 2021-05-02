@@ -91,7 +91,7 @@ def set_test_run_status(test_run : TestRun, document : XML::Node)
   errors_count = document["errors"].not_nil!.to_i
   failures_count = document["failures"].not_nil!.to_i
 
-  status = (testcase_count - skipped_count - failures_count - errors_count).zero? ? PASS : FAIL
+  status = (testcase_count - skipped_count - failures_count - errors_count) == testcase_count ? PASS : FAIL
 
   test_run.status = status
 end

@@ -1,6 +1,6 @@
 tests/*/results.json
 example
-scaffold_json
+scaffold.json
 result_to_json
 output.xml
 results.json
