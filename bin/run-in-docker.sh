@@ -36,8 +36,7 @@ docker build --rm -t exercism/test-runner .
 docker run \
     --rm \
     --network none \
-    --read-only \
     --mount type=bind,src="${input_dir}",dst=/solution \
     --mount type=bind,src="${output_dir}",dst=/output \
     --mount type=tmpfs,dst=/tmp \
-    exercism/test-runner "${slug}" /solution /output 
+    exercism/test-runner "${slug}" /solution /output

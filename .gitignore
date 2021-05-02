@@ -1,2 +1,8 @@
 tests/*/results.json
 example
+scaffold_json
+result_to_json
+output.xml
+results.json
+capture
+outdir

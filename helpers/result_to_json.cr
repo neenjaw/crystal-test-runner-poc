@@ -1,36 +1,34 @@
 require "json"
+require "xml"
 
-#
-# Convert captured test result to json
-#
-
-SECTION_PENDING         = "Pending:"
-SECTION_FAILURES        = "Failures:"
-SECTION_SUMMARY         = "Finished"
-SECTION_EXAMPLES        = "Failed examples:"
-SUMMARY_TEST_PASS       = '.'
-SUMMARY_TEST_FAIL       = 'F'
-SUMMARY_TEST_PENDING    = '*'
-TEST_SUMMARY_LINE_INDEX = 0
-
-TEST_FAILURE_DETAIL_START_PREFIX = /^  \d+/
-TEST_FAILURE_DETAIL_END_PREFIX   = /^     #/
-
-test_result_file = ARGV[0]?
-scaffold_json = ARGV[1]?
+spec_output = ARGV[0]?
+junit_file = ARGV[1]?
+scaffold_json = ARGV[2]?
+output_file = ARGV[3]?
 
 PASS  = "pass"
 FAIL  = "fail"
 ERROR = "error"
 
+TAG_TESTSUITE = "testsuite"
+TAG_TESTCASE  = "testcase"
+TAG_FAILURE   = "failure"
+TAG_SKIPPED   = "skipped"
+
+ATTR_MESSAGE = "message"
+ATTR_NAME    = "name"
+
 class TestCase
   include JSON::Serializable
 
   getter name : String
-  getter test_code : String
+  getter test_code : String?
   property status : String?
   property message : String?
   property output : String?
+
+  def initialize(@name, @test_code, @status, @message, @output)
+  end
 end
 
 class TestRun
@@ -39,102 +37,70 @@ class TestRun
   getter version : Int32
   property status : String?
   property message : String?
-  getter tests : Array(TestCase)
+  property tests : Array(TestCase)
 end
 
-enum ParsingState
-  SEARCH
-  SECTION_SHORT_SUMMARY
-  SECTION_PENDING
-  SECTION_FAILURES
-  SECTION_FAILURE_DETAIL
-  SECTION_SUMMARY
-  SECTION_EXAMPLES
+def find_element(node : XML::Node, name : String)
+  node.children.find do |child|
+    child.name == name
+  end
 end
 
-class ReadState
-  getter test_run : TestRun
-  private property state : ParsingState
-  private property failed_test_indexes : Array(Int32)
+def find_testsuite(document : XML::Node)
+  find_element(document, TAG_TESTSUITE).not_nil!
+end
 
-  def initialize(@test_run : TestRun)
-    @state = ParsingState::SEARCH
-    @failed_test_indexes = Array(Int32).new
-  end
-
-  def handle_line(line : String)
-    case state
-    when ParsingState::SEARCH
-      handle_search(line)
-    when ParsingState::SECTION_FAILURES
-      parse_failures(line)
-    when ParsingState::SECTION_FAILURE_DETAIL
-      parse_failure_detail(line)
-    else
-      raise "state #{state} not handled"
-    end
-
-    self
-  end
-
-  private def handle_search(line : String)
-    case line
-    when .blank?
-      nil
-    when .starts_with?(SECTION_FAILURES)
-      set_state(ParsingState::SECTION_FAILURES)
-    end
-  end
-
-  private def parse_short_summary(line : String)
-    line.chars.each_with_index do |char, idx|
-      case char
-      when SUMMARY_TEST_PASS
-        test_run.tests[idx].status = PASS
-      when SUMMARY_TEST_FAIL
-        test_run.tests[idx].status = FAIL
-        failed_test_indexes << idx
-      when SUMMARY_TEST_PENDING
-        test_run.tests[idx].status = ERROR
-        test_run.tests[idx].message = "Test case not run, unexpectedly skipped."
-      else
-        raise "Unexpected test status '#{char}'"
+def convert_to_test_cases(test_suite : XML::Node)
+  test_suite.children
+    .map do |test_case|
+      if test_case.name != TAG_TESTCASE
+        next nil
       end
-    end
 
-    set_state(ParsingState::SEARCH)
+      failure = find_element(test_case, TAG_FAILURE)
+      skipped = find_element(test_case, TAG_SKIPPED)
+
+      status = failure ? FAIL : (skipped ? ERROR : PASS)
+      message = failure ? failure.not_nil![ATTR_MESSAGE] : (
+        skipped ? "Test case unexpectedly skipped" : nil
+      )
+
+      TestCase.new(
+        test_case[ATTR_NAME],
+        nil,
+        status,
+        message,
+        nil
+      )
+    end
+    .compact
+end
+
+def merge_test_cases(a : Array(TestCase), b : Array(TestCase))
+  a.zip(b).map do |a, b|
+    a.status = b.status
+    a.message = b.message
+    a.output = b.output
+    a
   end
+end
 
-  private def parse_failures(line : String)
-    if failed_test_indexes.size.zero?
-      set_state(ParsingState::SEARCH)
-      return
-    end
+def set_test_run_status(test_run : TestRun, document : XML::Node)
+  testcase_count = document["tests"].not_nil!.to_i
+  skipped_count = document["skipped"].not_nil!.to_i
+  errors_count = document["errors"].not_nil!.to_i
+  failures_count = document["failures"].not_nil!.to_i
 
-    if line.matches?(TEST_FAILURE_DETAIL_START_PREFIX)
-      set_state(ParsingState::SECTION_FAILURE_DETAIL)
-      parse_failure_detail(line)
-    end
-  end
+  status = (testcase_count - skipped_count - failures_count - errors_count).zero? ? PASS : FAIL
 
-  private def parse_failure_detail(line : String)
-    test_case_idx = failed_test_indexes.first
-    test_case = test_run.tests[test_case_idx]
+  test_run.status = status
+end
 
-    if message = test_case.message
-      test_case.message = message + "\n" + line
-    else
-      test_case.message = line
-    end
-
-    if line.matches?(TEST_FAILURE_DETAIL_END_PREFIX)
-      failed_test_indexes.shift
-      set_state(ParsingState::SECTION_FAILURES)
-    end
-  end
-
-  private def set_state(state : ParsingState)
-    self.state = state
+def set_test_run_error(test_run : TestRun, spec_output : String?)
+  test_run.status = ERROR
+  test_run.message = spec_output
+  test_run.tests.each do |test_case|
+    test_case.status = FAIL
   end
 end
 
@@ -142,40 +108,43 @@ end
 # Main start
 #
 
-unless test_result_file && scaffold_json
+unless spec_output && junit_file && scaffold_json && output_file
   puts <<-USAGE
     Usage:
-    > result_to_json <captured 'crystal spec' output> <scaffold json file>
+    > result_to_json <captured spec> <junit xml> <scaffold json> <output file>
     USAGE
   exit 1
 end
 
+puts "* Reading scaffold json 📖"
+
 test_run = TestRun.from_json(File.read(scaffold_json))
-# pp test_run
 
-test_result = File.read(test_result_file)
-  .lines
-  .reduce(ReadState.new(test_run)) do |state, line|
-    state.handle_line(line)
-  end
-  .test_run
+puts "* Checking if junit xml exists 🔍"
 
-pp test_result
-# test_count = summary.size
-# failure_count = summary.count "F"
+if !File.exists?(junit_file)
+  puts "* Failed finding junit xml ❌"
 
-# # failures_list_index = test_result_lines.index { |line| line == FAILURES_LINE_START }
-# # failed_examples_index = test_result_lines.index { |line| line == FAILED_EXAMPLES_LINE_START }
+  set_test_run_error(test_run, File.read(spec_output))
 
-# # failures_list = if failures_list_index && failed_examples_index
-# #                   test_result_lines[(failures_list_index + 2)..(failed_examples_index - 2)]
-# #                 else
-# #                   [] of String
-# #                 end
+  puts "* Writing error result json to: #{output_file} 🖊"
 
-# puts summary
-# puts test_count
-# puts failure_count
+  File.write(output_file, test_run.to_json)
+  exit
+end
 
-# arr = Array(String).new(2)
-# puts arr
+puts "* Reading junit xml ✅"
+
+junit_xml = File.read(junit_file)
+junit_document = XML.parse(junit_xml)
+junit_testsuite = find_testsuite(junit_document)
+
+test_cases = convert_to_test_cases(junit_testsuite)
+test_run.tests = merge_test_cases(test_run.tests, test_cases)
+set_test_run_status(test_run, junit_testsuite)
+
+puts "* Writing merged result json to: #{output_file} 🖊"
+
+File.write(output_file, test_run.to_json)
+
+puts "* All done! 🏁"
