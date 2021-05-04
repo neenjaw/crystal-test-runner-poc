@@ -18,9 +18,10 @@ docker build --rm -t exercism/test-runner .
 # Run the Docker image using the settings mimicking the production environment
 docker run \
     --rm \
+    --read-only \
     --network none \
     --mount type=bind,src="${PWD}/tests",dst=/opt/test-runner/tests \
-    --mount type=tmpfs,dst=/tmp \
+    --mount type=volume,dst=/tmp \
     --workdir /opt/test-runner \
     --entrypoint /opt/test-runner/bin/run-tests.sh \
     exercism/test-runner
